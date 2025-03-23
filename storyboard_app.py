@@ -1,8 +1,9 @@
 import streamlit as st
 import fitz  # PyMuPDF
-import openai
+import json
 import io
 import zipfile
+from openai import OpenAI
 
 # --- UI ---
 st.set_page_config(page_title="Storyboard Tag Generator", layout="wide")
@@ -11,9 +12,15 @@ st.title("🎬 Storyboard Generator with GPT-4o")
 # API key input
 api_key = st.text_input("🔑 Inserisci la tua OpenAI API Key", type="password")
 
+# Upload PDF
 uploaded_file = st.file_uploader("📄 Carica un trattamento o script in PDF", type=["pdf"])
 
-if uploaded_file and api_key:
+# Bottone per avviare il processo
+if st.button("🚀 Avvia Analisi GPT e Generazione Cartelle"):
+    if not uploaded_file or not api_key:
+        st.error("Devi caricare un PDF e inserire la tua API Key.")
+        st.stop()
+
     # Estrai testo dal PDF
     with st.spinner("Estrazione testo dal PDF..."):
         pdf = fitz.open(stream=uploaded_file.read(), filetype="pdf")
@@ -34,10 +41,10 @@ Restituisci la risposta in formato JSON come questo:
 TESTO:
 """ + full_text[:12000]  # limitiamo la lunghezza per ora
 
-    # Chiamata API OpenAI
-    with st.spinner("💬 Invio a GPT-4o per l'elaborazione..."):
-        openai.api_key = api_key
-        response = openai.ChatCompletion.create(
+    # Chiamata GPT-4o con nuova sintassi
+    with st.spinner("💬 Chiamata a GPT-4o in corso..."):
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant for film pre-production."},
@@ -47,15 +54,15 @@ TESTO:
         )
 
     # Parsing della risposta
-    import json
     try:
-        data = json.loads(response.choices[0].message.content)
+        gpt_output = response.choices[0].message.content
+        data = json.loads(gpt_output)
     except Exception as e:
-        st.error("Errore nel parsing della risposta GPT:")
-        st.code(response.choices[0].message.content)
+        st.error("Errore nel parsing della risposta GPT. Ecco il contenuto grezzo:")
+        st.code(gpt_output)
         st.stop()
 
-    # Genera file ZIP con cartelle
+    # Genera ZIP in memoria
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w") as zip_file:
         for scene in data:
@@ -66,7 +73,7 @@ TESTO:
     st.success("✅ Generazione completata!")
     st.download_button("⬇️ Scarica ZIP con cartelle delle scene", zip_buffer, "storyboard_folders.zip")
 
-    # Mostra tabella tag
+    # Mostra tag con copia-incolla
     st.markdown("### 🏷️ Tag per ogni scena")
     for scene in data:
         st.markdown(f"**🎬 {scene['title']}** – {scene['description']}")
