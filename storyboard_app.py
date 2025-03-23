@@ -39,7 +39,7 @@ Return the result in valid JSON format like this:
 ]
 
 TEXT:
-""" + full_text[:12000]  # limitiamo la lunghezza per ora
+""" + full_text  # Usa tutto il testo, non troncato
 
     # Chiamata GPT-4o con nuova sintassi
     with st.spinner("Contacting GPT-4o..."):
@@ -53,18 +53,20 @@ TEXT:
             temperature=0.5
         )
 
-    # Parsing della risposta
+    # Parsing della risposta con cleaning robusto
     try:
         gpt_output = response.choices[0].message.content.strip()
 
-        # Pulizia da markdown ```json
         if gpt_output.startswith("```"):
-            gpt_output = gpt_output.strip("`").strip()
-            gpt_output = "\n".join(gpt_output.split("\n")[1:-1])
+            lines = gpt_output.strip("`").split("\n")
+            if lines[0].strip().startswith("json"):
+                lines = lines[1:]
+            lines = [line for line in lines if not line.strip().startswith("```")]
+            gpt_output = "\n".join(lines).strip()
 
         data = json.loads(gpt_output)
-    except Exception as e:
-        st.error("GPT response could not be parsed. Here's the raw content:")
+    except json.JSONDecodeError:
+        st.error("⚠️ GPT returned an incomplete or broken JSON. Try simplifying your input or shorten the document.")
         st.code(response.choices[0].message.content)
         st.stop()
 
