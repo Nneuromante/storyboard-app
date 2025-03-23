@@ -40,20 +40,16 @@ st.markdown("""
     <h1 style='font-family:Courier New, monospace; color:#00ffcc;'>SCENE_GEN_V3.2</h1>
 """, unsafe_allow_html=True)
 
-# API key input o preinserita
-if DEFAULT_API_KEY:
-    api_key = DEFAULT_API_KEY
-    st.text_input("OpenAI API Key (preloaded)", value=DEFAULT_API_KEY, type="password", disabled=True)
-else:
-    api_key = st.text_input("OpenAI API Key", type="password")
+# Usa direttamente la chiave hardcoded, niente input
+api_key = DEFAULT_API_KEY
 
 # Upload PDF
 uploaded_file = st.file_uploader("Upload your treatment or script (PDF)", type=["pdf"])
 
 # Bottone per avviare il processo
 if st.button("ELABORATE"):
-    if not uploaded_file or not api_key:
-        st.error("Please upload a PDF and insert your API Key.")
+    if not uploaded_file:
+        st.error("Please upload a PDF.")
         st.stop()
 
     with st.spinner("Extracting text from PDF..."):
