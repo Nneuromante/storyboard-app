@@ -1,57 +1,73 @@
 import streamlit as st
-import os
-import zipfile
+import fitz  # PyMuPDF
+import openai
 import io
+import zipfile
 
-# Titolo app
-st.title("📂 Storyboard Folder & Tag Generator")
+# --- UI ---
+st.set_page_config(page_title="Storyboard Tag Generator", layout="wide")
+st.title("🎬 Storyboard Generator with GPT-4o")
 
-st.markdown("""
-Carica un PDF (es. un trattamento), inserisci le scene, e ottieni:
-1. Uno ZIP con le cartelle per ogni scena
-2. Una lista di tag generati automaticamente per la ricerca reference
-""")
+# API key input
+api_key = st.text_input("🔑 Inserisci la tua OpenAI API Key", type="password")
 
-# Upload del file PDF (placeholder per futuro parsing automatico)
-uploaded_file = st.file_uploader("Carica il trattamento in PDF", type=["pdf"])
+uploaded_file = st.file_uploader("📄 Carica un trattamento o script in PDF", type=["pdf"])
 
-# Inserimento manuale delle scene
-titles_input = st.text_area("Inserisci i titoli delle scene, una per riga:",
-                           placeholder="01 Beach – Kids with SUP\n02 Promenade – Family restaurant\n...")
+if uploaded_file and api_key:
+    # Estrai testo dal PDF
+    with st.spinner("Estrazione testo dal PDF..."):
+        pdf = fitz.open(stream=uploaded_file.read(), filetype="pdf")
+        full_text = "\n".join([page.get_text() for page in pdf])
 
-# Funzione per generare tag (mock semplice per ora)
-def generate_tags(title):
-    keywords = title.lower().replace("–", "").replace("-", "").split()
-    extra = ["cinematic", "natural light", "POV", "reference", "emotion"]
-    return ", ".join(keywords[:4] + extra[:3])
+    # Prompt per GPT-4o
+    prompt = f"""
+Analizza il seguente documento e identifica un elenco di SCENE. Per ciascuna scena fornisci:
+- Un TITOLO (breve)
+- Una BREVE DESCRIZIONE (1 riga)
+- Una lista di 5-7 TAG in inglese utili per cercare immagini su siti come ShotDeck, Flim o Pinterest.
+Restituisci la risposta in formato JSON come questo:
+[
+  {{"title": "Beach Entry", "description": "Children running with paddleboards", "tags": ["beach kids", "paddle board", "sunlight", "vacation", "morning energy"]}},
+  ...
+]
 
-# Quando premi il pulsante:
-if st.button("📦 Genera ZIP e mostra i tag"):
-    if not titles_input.strip():
-        st.warning("Inserisci almeno una scena per continuare.")
-    else:
-        scene_titles = titles_input.strip().split("\n")
+TESTO:
+""" + full_text[:12000]  # limitiamo la lunghezza per ora
 
-        # Crea file ZIP in memoria
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w") as zip_file:
-            for title in scene_titles:
-                folder_name = title.strip().replace(" ", "_").replace("/", "-")
-                zip_file.writestr(f"{folder_name}/.keep", "")  # File segnaposto per tenere la cartella
+    # Chiamata API OpenAI
+    with st.spinner("💬 Invio a GPT-4o per l'elaborazione..."):
+        openai.api_key = api_key
+        response = openai.ChatCompletion.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant for film pre-production."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.5
+        )
 
-        zip_buffer.seek(0)
-        st.download_button("⬇️ Scarica ZIP con cartelle", zip_buffer, "storyboard_folders.zip")
+    # Parsing della risposta
+    import json
+    try:
+        data = json.loads(response.choices[0].message.content)
+    except Exception as e:
+        st.error("Errore nel parsing della risposta GPT:")
+        st.code(response.choices[0].message.content)
+        st.stop()
 
-        st.markdown("---")
-        st.markdown("### 🏷️ Tag generati automaticamente")
+    # Genera file ZIP con cartelle
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+        for scene in data:
+            folder_name = scene['title'].replace(" ", "_").replace("/", "-")
+            zip_file.writestr(f"{folder_name}/.keep", "")
+    zip_buffer.seek(0)
 
-        for title in scene_titles:
-            tag_text = generate_tags(title)
-            col1, col2 = st.columns([1, 2])
-            with col1:
-                st.markdown(f"**{title}**")
-            with col2:
-                st.code(tag_text, language="markdown")
-                st.button(f"📋 Copia tag – {title}", key=title)
+    st.success("✅ Generazione completata!")
+    st.download_button("⬇️ Scarica ZIP con cartelle delle scene", zip_buffer, "storyboard_folders.zip")
 
-        st.info("I tag sono generati automaticamente a partire dai titoli delle scene. Puoi personalizzarli nel codice se vuoi risultati più avanzati.")
+    # Mostra tabella tag
+    st.markdown("### 🏷️ Tag per ogni scena")
+    for scene in data:
+        st.markdown(f"**🎬 {scene['title']}** – {scene['description']}")
+        st.code(", ".join(scene['tags']), language="markdown")
